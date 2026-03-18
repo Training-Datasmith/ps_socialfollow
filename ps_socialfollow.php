@@ -393,7 +393,7 @@ class Ps_Socialfollow extends Module implements WidgetInterface
             $defaultValue = trim(Tools::getValue("BLOCKSOCIAL_{$social}_{$defaultLanguageId}", ''));
             foreach (Language::getIDs() as $id_lang) {
                 $value = trim(Tools::getValue("BLOCKSOCIAL_{$social}_{$id_lang}", ''));
-                $values[$social][$id_lang] = $value ? $value : $defaultValue;
+                $values[$social][$id_lang] = $value ?: $defaultValue;
                 $violations = $validator->validate($values[$social][$id_lang], $constraints);
 
                 if (count($violations)) {
