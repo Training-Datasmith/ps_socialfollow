@@ -1,4 +1,6 @@
 <?php
+
+declare(strict_types=1);
 /**
  * Copyright since 2007 PrestaShop SA and Contributors
  * PrestaShop is an International Registered Trademark & Property of PrestaShop SA
@@ -27,7 +29,7 @@ use Symfony\Component\Validator\Validation;
 
 class Ps_Socialfollow extends Module implements WidgetInterface
 {
-    const SOCIAL_NETWORKS = [
+    public const SOCIAL_NETWORKS = [
         'FACEBOOK',
         'TWITTER',
         'RSS',
