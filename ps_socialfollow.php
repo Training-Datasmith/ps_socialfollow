@@ -388,7 +388,7 @@ class Ps_Socialfollow extends Module implements WidgetInterface
     {
         $defaultLanguageId = (int) Configuration::get('PS_LANG_DEFAULT');
         $validator = Validation::createValidator();
-        $constraints = [new Url()];
+        $constraints = [new Url(protocols: ['http', 'https'])];
         $values = [];
         $errors = [];
         foreach (static::SOCIAL_NETWORKS as $social) {
