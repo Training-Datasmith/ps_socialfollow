@@ -62,6 +62,12 @@ class Ps_Socialfollow extends Module implements WidgetInterface
         $this->templateFile = 'module:ps_socialfollow/ps_socialfollow.tpl';
     }
 
+    /**
+     * Installs the module, initialises all social-network URL configuration keys to empty,
+     * and registers the actionFrontControllerSetMedia and displayFooter hooks.
+     *
+     * @return bool True on success, false on failure
+     */
     public function install()
     {
         return parent::install() &&
@@ -79,6 +85,11 @@ class Ps_Socialfollow extends Module implements WidgetInterface
             $this->registerHook('displayFooter');
     }
 
+    /**
+     * Uninstalls the module and removes all social-network URL configuration keys.
+     *
+     * @return bool True on success, false on failure
+     */
     public function uninstall()
     {
         return Configuration::deleteByName('BLOCKSOCIAL_FACEBOOK') &&
@@ -94,6 +105,11 @@ class Ps_Socialfollow extends Module implements WidgetInterface
             parent::uninstall();
     }
 
+    /**
+     * Renders the module configuration form and handles the save form submission.
+     *
+     * @return string HTML of the configuration page
+     */
     public function getContent()
     {
         $html = '';
@@ -121,6 +137,15 @@ class Ps_Socialfollow extends Module implements WidgetInterface
         return $html;
     }
 
+    /**
+     * Clears the Smarty template cache for this module's template file.
+     *
+     * @param string      $template   Template name (ignored; always clears the module template)
+     * @param string|null $cache_id   Optional cache ID
+     * @param string|null $compile_id Optional compile ID
+     *
+     * @return bool
+     */
     public function _clearCache($template, $cache_id = null, $compile_id = null)
     {
         return parent::_clearCache($this->templateFile);
@@ -270,6 +295,14 @@ class Ps_Socialfollow extends Module implements WidgetInterface
         return $value;
     }
 
+    /**
+     * Renders the social follow widget, using cached output when available.
+     *
+     * @param string|null $hookName    Name of the hook rendering this widget
+     * @param array       $configuration Hook configuration parameters
+     *
+     * @return string Rendered HTML of the social media follow links block
+     */
     public function renderWidget($hookName = null, array $configuration = [])
     {
         if (!$this->isCached($this->templateFile, $this->getCacheId('ps_socialfollow'))) {
@@ -279,6 +312,14 @@ class Ps_Socialfollow extends Module implements WidgetInterface
         return $this->fetch($this->templateFile, $this->getCacheId('ps_socialfollow'));
     }
 
+    /**
+     * Returns template variables for the social follow widget.
+     *
+     * @param string|null $hookName    Name of the hook rendering this widget
+     * @param array       $configuration Hook configuration parameters
+     *
+     * @return array{social_links: array<string, array{label: string, class: string, url: string}>}
+     */
     public function getWidgetVariables($hookName = null, array $configuration = [])
     {
         $social_links = [];
