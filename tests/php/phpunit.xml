@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit
+    bootstrap="bootstrap.php"
+    colors="true"
+    beStrictAboutTestsThatDoNotTestAnything="true"
+    beStrictAboutOutputDuringTests="true"
+    beStrictAboutChangesToGlobalState="true"
+    beStrictAboutTodoAnnotatedTests="true"
+>
+    <testsuites>
+        <testsuite name="module-tests">
+            <file>ConfigurationFormTest.php</file>
+            <file>DirectoryGuardTest.php</file>
+            <file>InstallUninstallTest.php</file>
+            <file>ModuleMetadataTest.php</file>
+            <file>SuiteManifestTest.php</file>
+            <file>WidgetTest.php</file>
+        </testsuite>
+    </testsuites>
+</phpunit>

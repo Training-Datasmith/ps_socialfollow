@@ -1,0 +1,18 @@
+{
+  "name": "prestashop/ps_socialfollow-tests",
+  "description": "Test-only dependencies for ps_socialfollow (not installed in repo vendor)",
+  "require": {
+    "php": ">=5.6",
+    "symfony/validator": "3.4.47",
+    "symfony/translation": "3.4.47",
+    "symfony/polyfill-ctype": "1.19.0",
+    "symfony/polyfill-mbstring": "1.19.0"
+  },
+  "config": {
+    "platform": {
+      "php": "5.6.40"
+    },
+    "preferred-install": "dist",
+    "sort-packages": true
+  }
+}
