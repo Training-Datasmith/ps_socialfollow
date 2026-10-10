@@ -62,7 +62,7 @@ class DirectoryGuardTest extends ModuleTestCase
     {
         $path = PsSocialfollowTestHarness::repoRoot() . '/ps_socialfollow.php';
         $result = PsSocialfollowChildProcess::run(
-            'include ' . var_export($path, true) . ';'
+            'include ' . var_export($path, true) . '; echo "AFTER_INCLUDE";'
         );
         PsSocialfollowChildProcess::assertCleanGuardExit($result);
         $this->assertNotContains('AFTER_INCLUDE', $result['stdout'] . $result['stderr']);

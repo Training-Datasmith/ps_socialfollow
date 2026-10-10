@@ -1,5 +1,9 @@
 <?php
 
+error_reporting(-1);
+ini_set('display_errors', '1');
+ini_set('display_startup_errors', '1');
+
 /**
  * Orchestrates ps_socialfollow PHPUnit runs in digest-pinned PHP containers.
  *
@@ -20,8 +24,6 @@ $runs = array(
         'phpunit' => '4.8.36',
         'phpunitSha256' => 'ab8bc3017a64cf75a2112f5e089a1d5b0c4cc2116556d60c1af5e3f584e85c5e',
         'expectedVersion' => '5.6.40',
-        'composerUrl' => 'https://getcomposer.org/download/1.10.27/composer.phar',
-        'composerSha256' => '230d28fb29f3c6c07ab2382390bef313e36de17868b2bd23b2e070554cae23d2',
     ),
     array(
         'label' => 'PHP 7.2.34',
@@ -130,8 +132,10 @@ function prepareVerifiedTooling(array $run)
     $toolDir = sys_get_temp_dir() . '/psf-suite-tools-' . md5($run['label'] . microtime(true));
     mkdir($toolDir, 0700, true);
 
-    $composerPhar = $toolDir . '/composer.phar';
-    downloadVerifiedFile($run['composerUrl'], $composerPhar, $run['composerSha256']);
+    if (!empty($run['composerUrl']) && !empty($run['composerSha256'])) {
+        $composerPhar = $toolDir . '/composer.phar';
+        downloadVerifiedFile($run['composerUrl'], $composerPhar, $run['composerSha256']);
+    }
 
     $phpunitPhar = $toolDir . '/phpunit.phar';
     $phpunitAsc = $toolDir . '/phpunit.phar.asc';
@@ -348,13 +352,11 @@ function writePhpunitXml($path, array $absoluteFiles)
 PHP;
 
     return str_replace(
-        array('EXPECTED_VERSION', 'PHPUNIT_VERSION', 'PHPUNIT_SHA256', 'COMPOSER_URL', 'COMPOSER_SHA256'),
+        array('EXPECTED_VERSION', 'PHPUNIT_VERSION', 'PHPUNIT_SHA256'),
         array(
             $expectedVersion,
             $phpunit,
             $sha,
-            $run['composerUrl'],
-            $run['composerSha256'],
         ),
         $script
     );

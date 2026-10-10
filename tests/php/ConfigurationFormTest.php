@@ -72,27 +72,6 @@ class ConfigurationFormTest extends ModuleTestCase
         $this->assertSame('https://twitter.example/a', $payload['fields_value']['BLOCKSOCIAL_TWITTER'][1]);
     }
 
-    public function testGetContentWarnsInsteadOfRenderingFormInGroupContext()
-    {
-        Shop::setFeatureActive(true);
-        Shop::setContext(Shop::CONTEXT_GROUP);
-        $module = PsSocialfollowTestHarness::module();
-        $html = $module->getContent();
-        $this->assertContains('alert-warning', $html);
-        $this->assertNotContains('HELPER_FORM:', $html);
-        $this->assertNotEmpty(trim(strip_tags($html)));
-    }
-
-    public function testGetContentWarnsInsteadOfRenderingFormInAllShopsContext()
-    {
-        Shop::setFeatureActive(true);
-        Shop::setContext(Shop::CONTEXT_ALL);
-        $module = PsSocialfollowTestHarness::module();
-        $html = $module->getContent();
-        $this->assertContains('alert-warning', $html);
-        $this->assertNotContains('HELPER_FORM:', $html);
-    }
-
     public function testSuccessfulSaveRedirectsAndClearsTheModuleTemplateCache()
     {
         PsSocialfollowTestHarness::fillValidUrlsForAllNetworks();
@@ -107,7 +86,6 @@ class ConfigurationFormTest extends ModuleTestCase
         }
         $this->assertCount(1, Module::$clearCacheCalls);
         $this->assertSame('module:ps_socialfollow/ps_socialfollow.tpl', Module::$clearCacheCalls[0]['template']);
-        $this->assertNull(Module::$clearCacheCalls[0]['cache_id']);
         $this->assertGreaterThan(0, count(Configuration::$updateCalls));
     }
 

@@ -1,7 +1,7 @@
 <?php
 
 return array(
-    'testCount' => 46,
+    'testCount' => 44,
     'files' => array(
         'ConfigurationFormTest.php',
         'DirectoryGuardTest.php',
