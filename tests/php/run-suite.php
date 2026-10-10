@@ -41,6 +41,8 @@ $runs = array(
     ),
 );
 
+const PSF_DOCKER_CLEANUP_IMAGE = 'php@sha256:42ffbc0798e4449bbd1e14fc4dcb87774aa1ad1900a09ef6a965bc0880aa2161';
+
 $dockerBin = getenv('PSF_DOCKER');
 if ($dockerBin === false || $dockerBin === '') {
     $dockerBin = 'docker';
@@ -57,11 +59,13 @@ if ($dockerProbeCode !== 0) {
     exit(1);
 }
 
+$suiteRunTempPaths = array();
 $vendorDir = createPrivateTempDir('psf-vendor-');
+$runCleanupDirs = array();
 
 try {
     $composerRun = $runs[1];
-    $buildToolDir = prepareVerifiedTooling($composerRun);
+    $buildToolDir = prepareVerifiedTooling($composerRun, $runCleanupDirs);
     $buildCmd = $dockerBin
         . ' run --rm'
         . ' -v ' . escapeshellarg($repoRoot) . ':/app:ro'
@@ -78,7 +82,7 @@ try {
         exit(1);
     }
     foreach ($runs as $run) {
-        $toolDir = prepareVerifiedTooling($run);
+        $toolDir = prepareVerifiedTooling($run, $runCleanupDirs);
         $inner = buildInnerRunnerScript($run);
         $innerPath = $toolDir . '/run-inner.php';
         file_put_contents($innerPath, $inner);
@@ -111,8 +115,20 @@ try {
         }
     }
 } finally {
+    putenv('GNUPGHOME');
+    exec('gpgconf --kill gpg-agent 2>/dev/null');
     if ($vendorDir !== '') {
-        removePrivateTempDir($vendorDir);
+        removePrivateTempDir($vendorDir, $dockerBin);
+    }
+    $uniqueCleanupDirs = array_values(array_unique($runCleanupDirs));
+    foreach ($uniqueCleanupDirs as $dir) {
+        removeHostTempDir($dir);
+    }
+    foreach ($suiteRunTempPaths as $path) {
+        clearstatcache(true, $path);
+        if (is_dir($path)) {
+            fwrite(STDERR, 'Warning: suite temp directory still present after cleanup: ' . $path . "\n");
+        }
     }
 }
 
@@ -129,6 +145,8 @@ exit($failed ? 1 : 0);
 
 function createPrivateTempDir($prefix)
 {
+    global $suiteRunTempPaths;
+
     $base = tempnam(sys_get_temp_dir(), $prefix);
     if ($base === false) {
         throw new RuntimeException('Could not create private temp directory');
@@ -137,24 +155,89 @@ function createPrivateTempDir($prefix)
         throw new RuntimeException('Could not create private temp directory');
     }
 
+    $suiteRunTempPaths[] = $base;
+
     return $base;
 }
 
-function removePrivateTempDir($path)
+function removePrivateTempDir($path, $dockerBin)
 {
     if ($path === '' || !is_dir($path)) {
         return;
     }
-    exec('rm -rf ' . escapeshellarg($path) . ' 2>/dev/null');
+
+    $hostOut = array();
+    exec('rm -rf ' . escapeshellarg($path) . ' 2>&1', $hostOut, $hostCode);
+    clearstatcache(true, $path);
+    if (!is_dir($path)) {
+        return;
+    }
+
+    $containerOut = array();
+    $containerCmd = $dockerBin
+        . ' run --rm'
+        . ' -v ' . escapeshellarg($path) . ':/cleanup'
+        . ' ' . PSF_DOCKER_CLEANUP_IMAGE
+        . ' rm -rf /cleanup';
+    exec($containerCmd . ' 2>&1', $containerOut, $containerCode);
+    clearstatcache(true, $path);
+
     if (is_dir($path)) {
-        exec('sudo rm -rf ' . escapeshellarg($path) . ' 2>/dev/null');
+        $hostOut2 = array();
+        exec('rm -rf ' . escapeshellarg($path) . ' 2>&1', $hostOut2, $hostCode2);
+        if ($hostOut2 !== array()) {
+            $hostOut = array_merge($hostOut, $hostOut2);
+        }
+        clearstatcache(true, $path);
+    }
+
+    if (is_dir($path)) {
+        usleep(100000);
+        exec('rm -rf ' . escapeshellarg($path) . ' 2>&1', $hostOut2, $hostCode2);
+        clearstatcache(true, $path);
+    }
+
+    if (is_dir($path)) {
+        fwrite(STDERR, 'Warning: failed to remove private temp directory ' . $path . "\n");
+        if ($hostOut !== array()) {
+            fwrite(STDERR, implode("\n", $hostOut) . "\n");
+        }
+        if ($containerOut !== array()) {
+            fwrite(STDERR, implode("\n", $containerOut) . "\n");
+        }
+        if ($containerCode !== 0) {
+            fwrite(STDERR, 'Docker cleanup exit code: ' . $containerCode . "\n");
+        }
     }
 }
 
-function prepareVerifiedTooling(array $run)
+function removeHostTempDir($path)
 {
-    $toolDir = sys_get_temp_dir() . '/psf-suite-tools-' . md5($run['label'] . microtime(true));
-    mkdir($toolDir, 0700, true);
+    if ($path === '' || !is_dir($path)) {
+        return;
+    }
+
+    exec('chmod -R u+rwx ' . escapeshellarg($path) . ' 2>/dev/null');
+    $out = array();
+    exec('rm -rf ' . escapeshellarg($path) . ' 2>&1', $out, $code);
+    clearstatcache(true, $path);
+    if (is_dir($path)) {
+        usleep(100000);
+        exec('rm -rf ' . escapeshellarg($path) . ' 2>&1', $out, $code);
+        clearstatcache(true, $path);
+    }
+    if (is_dir($path)) {
+        fwrite(STDERR, 'Warning: failed to remove temp directory ' . $path . "\n");
+        if ($out !== array()) {
+            fwrite(STDERR, implode("\n", $out) . "\n");
+        }
+    }
+}
+
+function prepareVerifiedTooling(array $run, array &$runCleanupDirs)
+{
+    $toolDir = createPrivateTempDir('psf-suite-tools-');
+    $runCleanupDirs[] = $toolDir;
 
     if (!empty($run['composerUrl']) && !empty($run['composerSha256'])) {
         $composerPhar = $toolDir . '/composer.phar';
@@ -166,7 +249,7 @@ function prepareVerifiedTooling(array $run)
     $phpunitUrl = 'https://phar.phpunit.de/phpunit-' . $run['phpunit'] . '.phar';
     downloadVerifiedFile($phpunitUrl, $phpunitPhar, $run['phpunitSha256']);
     downloadVerifiedFile($phpunitUrl . '.asc', $phpunitAsc, null);
-    verifyPhpunitPharSignature($phpunitPhar, $phpunitAsc);
+    verifyPhpunitPharSignature($phpunitPhar, $phpunitAsc, $runCleanupDirs);
 
     return $toolDir;
 }
@@ -184,10 +267,10 @@ function downloadVerifiedFile($url, $dest, $expectedSha256)
     }
 }
 
-function verifyPhpunitPharSignature($phar, $asc)
+function verifyPhpunitPharSignature($phar, $asc, array &$runCleanupDirs)
 {
-    $gpgHome = sys_get_temp_dir() . '/psf-gpg-host-' . getmypid() . '-' . mt_rand();
-    mkdir($gpgHome, 0700, true);
+    $gpgHome = createPrivateTempDir('psf-gpg-host-');
+    $runCleanupDirs[] = $gpgHome;
     putenv('GNUPGHOME=' . $gpgHome);
 
     $keyFile = $gpgHome . '/key.asc';
@@ -217,6 +300,8 @@ function verifyPhpunitPharSignature($phar, $asc)
     if (!$valid) {
         throw new RuntimeException('PHPUnit PHAR VALIDSIG fingerprint mismatch');
     }
+
+    exec('gpgconf --kill gpg-agent 2>/dev/null');
 }
 
 function buildInnerRunnerScript(array $run)
