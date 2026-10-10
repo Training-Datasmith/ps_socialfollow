@@ -11,6 +11,11 @@ ini_set('display_startup_errors', '1');
  *   php tests/php/run-suite.php
  */
 
+if (PHP_SAPI !== 'cli') {
+    fwrite(STDERR, "run-suite.php must be run from the CLI (PHP_SAPI=" . PHP_SAPI . ")\n");
+    exit(1);
+}
+
 $repoRoot = dirname(dirname(__DIR__));
 chdir($repoRoot);
 
@@ -36,84 +41,79 @@ $runs = array(
     ),
 );
 
-$dockerBin = '';
-foreach (array('/tmp/docker/docker', 'sudo /tmp/docker/docker', 'docker', 'sudo docker') as $candidate) {
-    $out = array();
-    exec($candidate . ' version >/dev/null 2>&1', $out, $code);
-    if ($code === 0) {
-        $dockerBin = $candidate;
-        break;
-    }
+$dockerBin = getenv('PSF_DOCKER');
+if ($dockerBin === false || $dockerBin === '') {
+    $dockerBin = 'docker';
 }
 
 $results = array();
 $failed = false;
 
-if ($dockerBin === '') {
-    fwrite(STDERR, "Docker is not available; cannot run digest-pinned suite.\n");
+$dockerProbe = array();
+exec($dockerBin . ' version >/dev/null 2>&1', $dockerProbe, $dockerProbeCode);
+if ($dockerProbeCode !== 0) {
+    fwrite(STDERR, "Docker is not available (PSF_DOCKER or PATH docker); cannot run digest-pinned suite.\n");
     writeArtifact(array(), $repoRoot, 1);
     exit(1);
 }
 
-$sharedVendorDir = sys_get_temp_dir() . '/psf-shared-vendor-' . substr(hash('sha256', file_get_contents($repoRoot . '/tests/php/composer.json')), 0, 16);
-if (!is_dir($sharedVendorDir . '/composer')) {
-    if (is_dir($sharedVendorDir)) {
-        exec('rm -rf ' . escapeshellarg($sharedVendorDir));
-    }
-    mkdir($sharedVendorDir, 0700, true);
+$vendorDir = createPrivateTempDir('psf-vendor-');
+
+try {
     $composerRun = $runs[1];
-    $toolDir = prepareVerifiedTooling($composerRun);
+    $buildToolDir = prepareVerifiedTooling($composerRun);
     $buildCmd = $dockerBin
         . ' run --rm'
-        . ' -v ' . escapeshellarg($repoRoot) . ':/app'
-        . ' -v ' . escapeshellarg($toolDir) . ':/tools:ro'
-        . ' -v ' . escapeshellarg($sharedVendorDir) . ':/vendor-out'
+        . ' -v ' . escapeshellarg($repoRoot) . ':/app:ro'
+        . ' -v ' . escapeshellarg($buildToolDir) . ':/tools:ro'
+        . ' -v ' . escapeshellarg($vendorDir) . ':/vendor-out'
         . ' -e PS_SOCIALFOLLOW_COMPOSER_PATH=/tools/composer.phar'
         . ' -e PS_SOCIALFOLLOW_VENDOR_OUT=/vendor-out'
         . ' php@sha256:42ffbc0798e4449bbd1e14fc4dcb87774aa1ad1900a09ef6a965bc0880aa2161'
         . ' php -d error_reporting=-1 -d display_errors=1 -d display_startup_errors=1 /app/tests/php/build-vendor.php';
     exec($buildCmd . ' 2>&1', $buildOut, $buildExit);
     if ($buildExit !== 0 || strpos(implode("\n", $buildOut), 'VENDOR_OK') === false) {
-        fwrite(STDERR, "Shared vendor build failed:\n" . implode("\n", $buildOut) . "\n");
+        fwrite(STDERR, "Vendor build failed:\n" . implode("\n", $buildOut) . "\n");
         writeArtifact(array(), $repoRoot, 1);
         exit(1);
     }
-}
+    foreach ($runs as $run) {
+        $toolDir = prepareVerifiedTooling($run);
+        $inner = buildInnerRunnerScript($run);
+        $innerPath = $toolDir . '/run-inner.php';
+        file_put_contents($innerPath, $inner);
 
-foreach ($runs as $run) {
-    $toolDir = prepareVerifiedTooling($run);
-    $inner = buildInnerRunnerScript($run);
-    $innerPath = $repoRoot . '/tests/php/.run-inner-temp.php';
-    file_put_contents($innerPath, $inner);
+        $cmd = $dockerBin
+            . ' run --rm'
+            . ' -v ' . escapeshellarg($repoRoot) . ':/app:ro'
+            . ' -v ' . escapeshellarg($toolDir) . ':/tools:ro'
+            . ' -e PS_SOCIALFOLLOW_PHPUNIT_PATH=/tools/phpunit.phar'
+            . ' -v ' . escapeshellarg($vendorDir) . ':/vendor:ro'
+            . ' -e PS_SOCIALFOLLOW_VENDOR=/vendor'
+            . ' -w /app '
+            . escapeshellarg($run['image'])
+            . ' php -d error_reporting=-1 -d display_errors=1 -d display_startup_errors=1 -d date.timezone=UTC '
+            . ' /tools/run-inner.php';
 
-    $cmd = $dockerBin
-        . ' run --rm'
-        . ' -v ' . escapeshellarg($repoRoot) . ':/app'
-        . ' -v ' . escapeshellarg($toolDir) . ':/tools:ro'
-        . ' -e PS_SOCIALFOLLOW_PHPUNIT_PATH=/tools/phpunit.phar'
-        . ' -v ' . escapeshellarg($sharedVendorDir) . ':/vendor:ro'
-        . ' -e PS_SOCIALFOLLOW_VENDOR=/vendor'
-        . ' -w /app '
-        . escapeshellarg($run['image'])
-        . ' php -d error_reporting=-1 -d display_errors=1 -d display_startup_errors=1 -d date.timezone=UTC '
-        . ' /app/tests/php/.run-inner-temp.php';
+        $output = array();
+        $exit = 0;
+        exec($cmd . ' 2>&1', $output, $exit);
+        $text = implode("\n", $output);
 
-    $output = array();
-    $exit = 0;
-    exec($cmd . ' 2>&1', $output, $exit);
-    $text = implode("\n", $output);
+        $parsed = parseRunnerOutput($text);
+        $parsed['label'] = $run['label'];
+        $parsed['exitCode'] = $exit;
+        $parsed['raw'] = $text;
+        $results[] = $parsed;
 
-    $parsed = parseRunnerOutput($text);
-    $parsed['label'] = $run['label'];
-    $parsed['exitCode'] = $exit;
-    $parsed['raw'] = $text;
-    $results[] = $parsed;
-
-    if ($exit !== 0 || !$parsed['ok']) {
-        $failed = true;
+        if ($exit !== 0 || !$parsed['ok']) {
+            $failed = true;
+        }
     }
-
-    @unlink($innerPath);
+} finally {
+    if ($vendorDir !== '') {
+        removePrivateTempDir($vendorDir);
+    }
 }
 
 $postJsonHash = hash_file('sha256', $repoRoot . '/composer.json');
@@ -126,6 +126,30 @@ if ($postJsonHash !== $rootComposerJsonHash || $postLockHash !== $rootComposerLo
 writeArtifact($results, $repoRoot, $failed ? 1 : 0);
 
 exit($failed ? 1 : 0);
+
+function createPrivateTempDir($prefix)
+{
+    $base = tempnam(sys_get_temp_dir(), $prefix);
+    if ($base === false) {
+        throw new RuntimeException('Could not create private temp directory');
+    }
+    if (!unlink($base) || !mkdir($base, 0700, true)) {
+        throw new RuntimeException('Could not create private temp directory');
+    }
+
+    return $base;
+}
+
+function removePrivateTempDir($path)
+{
+    if ($path === '' || !is_dir($path)) {
+        return;
+    }
+    exec('rm -rf ' . escapeshellarg($path) . ' 2>/dev/null');
+    if (is_dir($path)) {
+        exec('sudo rm -rf ' . escapeshellarg($path) . ' 2>/dev/null');
+    }
+}
 
 function prepareVerifiedTooling(array $run)
 {
